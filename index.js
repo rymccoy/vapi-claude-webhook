@@ -1,56 +1,57 @@
-import express from "express";
-import { createServer } from "http";
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic from '@anthropic-ai/sdk';
+import express from 'express';
+import 'dotenv/config';
 
+// ... rest of the code stays the same
 const app = express();
-const httpServer = createServer(app);
-
 app.use(express.json());
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// Webhook endpoint
-app.post("/webhook", async (req, res) => {
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.json({ status: 'Voice AI Secretary is running!' });
+});
+
+// Webhook endpoint for Vapi
+app.post('/webhook', async (req, res) => {
+  console.log('Received webhook:', req.body);
+  
+  const { message, conversationHistory = [] } = req.body;
+  
   try {
-    const { message } = req.body;
-
-    if (!message) {
-      return res.status(400).json({ error: "Message field is required" });
-    }
-
+    // Build messages array for Claude
+    const messages = conversationHistory.map(msg => ({
+      role: msg.role === 'assistant' ? 'assistant' : 'user',
+      content: msg.content
+    }));
+    
+    // Add current message
+    messages.push({ role: 'user', content: message });
+    
     const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 150,
-      messages: [
-        {
-          role: "user",
-          content: message,
-        },
-      ],
+      system: `You are a professional, friendly voice secretary. Keep responses very brief (1-2 sentences max) since this is a phone call. Speak naturally and conversationally.`,
+      messages: messages,
     });
-
-    const textContent = response.content.find((block) => block.type === "text");
-    const responseText =
-      textContent && textContent.type === "text" ? textContent.text : "";
-
-    res.json({
-      success: true,
-      response: responseText,
-      usage: {
-        input_tokens: response.usage.input_tokens,
-        output_tokens: response.usage.output_tokens,
-      },
-    });
+    
+    const reply = response.content[0].text;
+    console.log('Claude response:', reply);
+    
+    res.json({ response: reply });
+    
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error";
-    res.status(500).json({ error: errorMessage });
+    console.error('Error calling Claude:', error);
+    res.status(500).json({ 
+      response: "I'm having trouble processing that. Could you try again?" 
+    });
   }
 });
 
-const port = parseInt(process.env.PORT || "5000", 10);
-httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
-  console.log(`Server running on port ${port}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
