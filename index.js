@@ -110,92 +110,85 @@ app.get('/auth', (req, res) => {
 app.post('/webhook', async (req, res) => {
   console.log('Received webhook:', JSON.stringify(req.body, null, 2));
   
-  const { message, conversationHistory = [] } = req.body;
+  const { message } = req.body;
+  
+  // Vapi sends messagesOpenAIFormatted - use it directly!
+  const messages = message?.messagesOpenAIFormatted || [];
+  
+  // Filter out system messages and convert to Claude format
+  const claudeMessages = messages
+    .filter(m => m.role !== 'system')
+    .map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content
+    }));
+  
+  // Get system message from Vapi (this is your prompt from Vapi dashboard)
+  const systemMessage = messages.find(m => m.role === 'system')?.content || 
+    'You are a professional voice secretary. Keep responses brief (1-2 sentences).';
+  
+  // Define tools for Claude (function calling)
+  const tools = [
+    {
+      name: 'check_availability',
+      description: 'Check if a time slot is available in the calendar. Use this before booking appointments.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          date: {
+            type: 'string',
+            description: 'Date in YYYY-MM-DD format'
+          },
+          start_time: {
+            type: 'string',
+            description: 'Start time in HH:MM format (24-hour)'
+          },
+          end_time: {
+            type: 'string',
+            description: 'End time in HH:MM format (24-hour)'
+          }
+        },
+        required: ['date', 'start_time', 'end_time']
+      }
+    },
+    {
+      name: 'book_appointment',
+      description: 'Book an appointment in the calendar. Only use after checking availability.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          summary: {
+            type: 'string',
+            description: 'Title/summary of the appointment'
+          },
+          date: {
+            type: 'string',
+            description: 'Date in YYYY-MM-DD format'
+          },
+          start_time: {
+            type: 'string',
+            description: 'Start time in HH:MM format (24-hour)'
+          },
+          end_time: {
+            type: 'string',
+            description: 'End time in HH:MM format (24-hour)'
+          },
+          description: {
+            type: 'string',
+            description: 'Additional details about the appointment'
+          }
+        },
+        required: ['summary', 'date', 'start_time', 'end_time']
+      }
+    }
+  ];
   
   try {
-    // Build messages array for Claude
-    const messages = conversationHistory.map(msg => ({
-      role: msg.role === 'assistant' ? 'assistant' : 'user',
-      content: msg.content
-    }));
-    
-    // Add current message
-    if (message) {
-      messages.push({ role: 'user', content: message });
-    }
-    
-    // Define tools for Claude (function calling)
-    const tools = [
-      {
-        name: 'check_availability',
-        description: 'Check if a time slot is available in the calendar. Use this before booking appointments.',
-        input_schema: {
-          type: 'object',
-          properties: {
-            date: {
-              type: 'string',
-              description: 'Date in YYYY-MM-DD format'
-            },
-            start_time: {
-              type: 'string',
-              description: 'Start time in HH:MM format (24-hour)'
-            },
-            end_time: {
-              type: 'string',
-              description: 'End time in HH:MM format (24-hour)'
-            }
-          },
-          required: ['date', 'start_time', 'end_time']
-        }
-      },
-      {
-        name: 'book_appointment',
-        description: 'Book an appointment in the calendar. Only use after checking availability.',
-        input_schema: {
-          type: 'object',
-          properties: {
-            summary: {
-              type: 'string',
-              description: 'Title/summary of the appointment'
-            },
-            date: {
-              type: 'string',
-              description: 'Date in YYYY-MM-DD format'
-            },
-            start_time: {
-              type: 'string',
-              description: 'Start time in HH:MM format (24-hour)'
-            },
-            end_time: {
-              type: 'string',
-              description: 'End time in HH:MM format (24-hour)'
-            },
-            description: {
-              type: 'string',
-              description: 'Additional details about the appointment'
-            }
-          },
-          required: ['summary', 'date', 'start_time', 'end_time']
-        }
-      }
-    ];
-
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 200,
-      system: `You are a professional voice secretary who can check calendar availability and book appointments.
-
-Keep responses VERY brief (1-2 sentences) since this is a phone call.
-
-When someone wants to schedule:
-1. First check availability using check_availability
-2. If available, confirm details with the caller
-3. Then book using book_appointment
-4. Confirm the booking
-
-Always confirm the date and time back to the caller before booking.
-Speak naturally and conversationally.`,
-      messages: messages,
+      system: systemMessage,
+      messages: claudeMessages,
       tools: tools,
     });
 
@@ -224,9 +217,9 @@ Speak naturally and conversationally.`,
       const finalResponse = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 150,
-        system: `You are a professional voice secretary. Keep responses VERY brief (1-2 sentences) for phone calls.`,
+        system: systemMessage,
         messages: [
-          ...messages,
+          ...claudeMessages,
           { role: 'assistant', content: response.content },
           {
             role: 'user',
@@ -246,7 +239,14 @@ Speak naturally and conversationally.`,
       const reply = textContent ? textContent.text : 'Done!';
       
       console.log('Final response:', reply);
-      return res.json({ response: reply });
+      
+      // Return in format Vapi expects
+      return res.json({ 
+        results: [{
+          role: 'assistant',
+          content: reply
+        }]
+      });
     }
 
     // Regular text response (no tool use)
@@ -254,12 +254,19 @@ Speak naturally and conversationally.`,
     const reply = textContent ? textContent.text : "I'm here to help!";
     
     console.log('Text response:', reply);
-    res.json({ response: reply });
+    
+    // Return in format Vapi expects
+    res.json({ 
+      results: [{
+        role: 'assistant',
+        content: reply
+      }]
+    });
     
   } catch (error) {
     console.error('Error:', error);
     res.status(500).json({ 
-      response: "I'm having trouble right now. Could you try again?"
+      error: error.message
     });
   }
 });
