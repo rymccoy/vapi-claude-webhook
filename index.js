@@ -107,7 +107,7 @@ app.get('/auth', (req, res) => {
 });
 
 // OpenAI-compatible endpoint that Vapi expects for Custom LLM
-app.post('/webhook/chat/completions', async (req, res) => {
+app.post('/chat/completions', async (req, res) => {
   console.log('Received OpenAI format request:', JSON.stringify(req.body, null, 2));
   
   const { messages } = req.body;
