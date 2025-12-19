@@ -116,18 +116,16 @@ async function handleConversation(req, res) {
   // Validate messages
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     console.error('ERROR: No valid messages array!');
-    console.error('Received:', messages);
     return res.status(400).json({ 
       error: { 
-        message: 'No valid messages provided',
-        received: req.body
+        message: 'No valid messages provided'
       } 
     });
   }
   
   // Extract system message and conversation messages
   const systemMessage = messages.find(m => m.role === 'system')?.content || 
-    'You are a professional voice secretary.';
+    'You are a professional voice secretary. Keep responses brief (1-2 sentences).';
   
   const claudeMessages = messages
     .filter(m => m.role !== 'system')
@@ -136,8 +134,7 @@ async function handleConversation(req, res) {
       content: m.content
     }));
   
-  console.log('System message:', systemMessage);
-  console.log('Claude messages:', JSON.stringify(claudeMessages, null, 2));
+  console.log('Claude messages count:', claudeMessages.length);
   
   if (claudeMessages.length === 0) {
     console.error('ERROR: No non-system messages!');
@@ -151,4 +148,162 @@ async function handleConversation(req, res) {
   // Define calendar tools
   const tools = [
     {
-      name: 'check_availability'
+      name: 'check_availability',
+      description: 'Check if a time slot is available in the calendar. Use this before booking appointments.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          date: {
+            type: 'string',
+            description: 'Date in YYYY-MM-DD format'
+          },
+          start_time: {
+            type: 'string',
+            description: 'Start time in HH:MM format (24-hour)'
+          },
+          end_time: {
+            type: 'string',
+            description: 'End time in HH:MM format (24-hour)'
+          }
+        },
+        required: ['date', 'start_time', 'end_time']
+      }
+    },
+    {
+      name: 'book_appointment',
+      description: 'Book an appointment in the calendar. Only use after checking availability.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          summary: {
+            type: 'string',
+            description: 'Title/summary of the appointment'
+          },
+          date: {
+            type: 'string',
+            description: 'Date in YYYY-MM-DD format'
+          },
+          start_time: {
+            type: 'string',
+            description: 'Start time in HH:MM format (24-hour)'
+          },
+          end_time: {
+            type: 'string',
+            description: 'End time in HH:MM format (24-hour)'
+          },
+          description: {
+            type: 'string',
+            description: 'Additional details about the appointment'
+          }
+        },
+        required: ['summary', 'date', 'start_time', 'end_time']
+      }
+    }
+  ];
+  
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 200,
+      system: systemMessage,
+      messages: claudeMessages,
+      tools: tools,
+    });
+
+    console.log('Claude response stop_reason:', response.stop_reason);
+
+    // Handle tool use (function calling)
+    if (response.stop_reason === 'tool_use') {
+      const toolUse = response.content.find(block => block.type === 'tool_use');
+      console.log('Tool use:', toolUse.name, toolUse.input);
+      let toolResult;
+
+      if (toolUse.name === 'check_availability') {
+        const { date, start_time, end_time } = toolUse.input;
+        const isAvailable = await checkAvailability(date, start_time, end_time);
+        toolResult = {
+          available: isAvailable,
+          message: isAvailable 
+            ? `${date} from ${start_time} to ${end_time} is available.`
+            : `${date} from ${start_time} to ${end_time} is not available.`
+        };
+      } else if (toolUse.name === 'book_appointment') {
+        const { summary, date, start_time, end_time, description } = toolUse.input;
+        toolResult = await bookAppointment(summary, date, start_time, end_time, description);
+      }
+
+      console.log('Tool result:', toolResult);
+
+      // Send tool result back to Claude for final response
+      const finalResponse = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 150,
+        system: systemMessage,
+        messages: [
+          ...claudeMessages,
+          { role: 'assistant', content: response.content },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: toolUse.id,
+                content: JSON.stringify(toolResult),
+              },
+            ],
+          },
+        ],
+        tools: tools,
+      });
+
+      const textContent = finalResponse.content.find(block => block.type === 'text');
+      const reply = textContent ? textContent.text : 'Done!';
+      
+      console.log('Final response:', reply);
+      
+      // Return in OpenAI format
+      return res.json({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: reply
+          }
+        }]
+      });
+    }
+
+    // Regular text response (no tool use)
+    const textContent = response.content.find(block => block.type === 'text');
+    const reply = textContent ? textContent.text : "I'm here to help!";
+    
+    console.log('Text response:', reply);
+    
+    // Return in OpenAI format
+    res.json({
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: reply
+        }
+      }]
+    });
+    
+  } catch (error) {
+    console.error('Claude API Error:', error);
+    res.status(500).json({ 
+      error: {
+        message: error.message,
+        type: 'api_error'
+      }
+    });
+  }
+}
+
+// Attach handler to both possible routes
+app.post('/chat/completions', handleConversation);
+app.post('/webhook', handleConversation);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
