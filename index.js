@@ -106,7 +106,175 @@ app.get('/auth', (req, res) => {
   res.redirect(authUrl);
 });
 
-// Main webhook endpoint for Vapi
+// OpenAI-compatible endpoint that Vapi expects for Custom LLM
+app.post('/webhook/chat/completions', async (req, res) => {
+  console.log('Received OpenAI format request:', JSON.stringify(req.body, null, 2));
+  
+  const { messages } = req.body;
+  
+  // Convert to Claude format
+  const claudeMessages = messages
+    .filter(m => m.role !== 'system')
+    .map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content
+    }));
+  
+  const systemMessage = messages.find(m => m.role === 'system')?.content || 
+    'You are a professional voice secretary.';
+  
+  // Define calendar tools
+  const tools = [
+    {
+      name: 'check_availability',
+      description: 'Check if a time slot is available in the calendar. Use this before booking appointments.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          date: {
+            type: 'string',
+            description: 'Date in YYYY-MM-DD format'
+          },
+          start_time: {
+            type: 'string',
+            description: 'Start time in HH:MM format (24-hour)'
+          },
+          end_time: {
+            type: 'string',
+            description: 'End time in HH:MM format (24-hour)'
+          }
+        },
+        required: ['date', 'start_time', 'end_time']
+      }
+    },
+    {
+      name: 'book_appointment',
+      description: 'Book an appointment in the calendar. Only use after checking availability.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          summary: {
+            type: 'string',
+            description: 'Title/summary of the appointment'
+          },
+          date: {
+            type: 'string',
+            description: 'Date in YYYY-MM-DD format'
+          },
+          start_time: {
+            type: 'string',
+            description: 'Start time in HH:MM format (24-hour)'
+          },
+          end_time: {
+            type: 'string',
+            description: 'End time in HH:MM format (24-hour)'
+          },
+          description: {
+            type: 'string',
+            description: 'Additional details about the appointment'
+          }
+        },
+        required: ['summary', 'date', 'start_time', 'end_time']
+      }
+    }
+  ];
+  
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 200,
+      system: systemMessage,
+      messages: claudeMessages,
+      tools: tools,
+    });
+
+    console.log('Claude response:', JSON.stringify(response, null, 2));
+
+    // Handle tool use (function calling)
+    if (response.stop_reason === 'tool_use') {
+      const toolUse = response.content.find(block => block.type === 'tool_use');
+      let toolResult;
+
+      if (toolUse.name === 'check_availability') {
+        const { date, start_time, end_time } = toolUse.input;
+        const isAvailable = await checkAvailability(date, start_time, end_time);
+        toolResult = {
+          available: isAvailable,
+          message: isAvailable 
+            ? `${date} from ${start_time} to ${end_time} is available.`
+            : `${date} from ${start_time} to ${end_time} is not available.`
+        };
+      } else if (toolUse.name === 'book_appointment') {
+        const { summary, date, start_time, end_time, description } = toolUse.input;
+        toolResult = await bookAppointment(summary, date, start_time, end_time, description);
+      }
+
+      // Send tool result back to Claude for final response
+      const finalResponse = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 150,
+        system: systemMessage,
+        messages: [
+          ...claudeMessages,
+          { role: 'assistant', content: response.content },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: toolUse.id,
+                content: JSON.stringify(toolResult),
+              },
+            ],
+          },
+        ],
+        tools: tools,
+      });
+
+      const textContent = finalResponse.content.find(block => block.type === 'text');
+      const reply = textContent ? textContent.text : 'Done!';
+      
+      console.log('Final response with tool result:', reply);
+      
+      // Return in OpenAI format that Vapi expects
+      return res.json({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: reply
+          }
+        }]
+      });
+    }
+
+    // Regular text response (no tool use)
+    const textContent = response.content.find(block => block.type === 'text');
+    const reply = textContent ? textContent.text : "I'm here to help!";
+    
+    console.log('Text response:', reply);
+    
+    // Return in OpenAI format that Vapi expects
+    res.json({
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: reply
+        }
+      }]
+    });
+    
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ 
+      error: {
+        message: error.message,
+        type: 'api_error'
+      }
+    });
+  }
+});
+
+// Alternative webhook endpoint (legacy/backup)
 app.post('/webhook', async (req, res) => {
   console.log('Received webhook:', JSON.stringify(req.body, null, 2));
   
