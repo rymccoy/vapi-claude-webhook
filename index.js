@@ -74,18 +74,32 @@ async function checkAvailability(date, startTime, endTime) {
       singleEvents: true,
     });
 
-    const eventCount = response.data.items?.length || 0;
-    console.log(`Found ${eventCount} existing events in this time slot`);
+    const events = response.data.items || [];
+    console.log(`Found ${events.length} events in the calendar during this period`);
     
-    if (eventCount > 0) {
-      console.log('Events:', response.data.items.map(e => ({
+    // Check if any event actually overlaps with the requested time slot
+    const requestStart = new Date(timeMin);
+    const requestEnd = new Date(timeMax);
+    
+    const overlappingEvents = events.filter(event => {
+      const eventStart = new Date(event.start.dateTime || event.start.date);
+      const eventEnd = new Date(event.end.dateTime || event.end.date);
+      
+      // Events overlap if: event starts before requested end AND event ends after requested start
+      return eventStart < requestEnd && eventEnd > requestStart;
+    });
+    
+    console.log(`Found ${overlappingEvents.length} overlapping events`);
+    
+    if (overlappingEvents.length > 0) {
+      console.log('Overlapping events:', overlappingEvents.map(e => ({
         summary: e.summary,
         start: e.start.dateTime || e.start.date,
         end: e.end.dateTime || e.end.date
       })));
     }
     
-    const isAvailable = eventCount === 0;
+    const isAvailable = overlappingEvents.length === 0;
     
     return {
       available: isAvailable,
