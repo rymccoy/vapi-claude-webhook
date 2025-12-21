@@ -67,8 +67,10 @@ async function checkAvailability(date, startTime, endTime) {
     console.log(`Formatted times: ${formattedStart} to ${formattedEnd}`);
     console.log(`ISO format: ${timeMin} to ${timeMax}`);
 
+    const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary';
+    
     const response = await calendar.events.list({
-      calendarId: 'primary',
+      calendarId: calendarId,
       timeMin: timeMin,
       timeMax: timeMax,
       singleEvents: true,
@@ -101,11 +103,14 @@ async function checkAvailability(date, startTime, endTime) {
     
     const isAvailable = overlappingEvents.length === 0;
     
+    // Debug info that will appear in VAPI logs
+    const debugInfo = ` [DEBUG: Found ${events.length} total events, ${overlappingEvents.length} overlapping]`;
+    
     return {
       available: isAvailable,
       message: isAvailable 
-        ? `Yes, ${date} from ${startTime} to ${endTime} is available.`
-        : `Sorry, ${date} from ${startTime} to ${endTime} is already booked.`
+        ? `Yes, ${date} from ${startTime} to ${endTime} is available.${debugInfo}`
+        : `Sorry, ${date} from ${startTime} to ${endTime} is already booked.${debugInfo}`
     };
   } catch (error) {
     console.error('Error checking availability:', error);
@@ -139,9 +144,11 @@ async function bookAppointment(summary, date, startTime, endTime, description = 
     };
 
     console.log('Creating event:', JSON.stringify(event, null, 2));
+    
+    const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary';
 
     const response = await calendar.events.insert({
-      calendarId: 'primary',
+      calendarId: calendarId,
       resource: event,
     });
 
