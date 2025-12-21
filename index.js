@@ -69,12 +69,30 @@ async function checkAvailability(date, startTime, endTime) {
 
     const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary';
     
+    console.log('===== GOOGLE CALENDAR API REQUEST =====');
+    console.log('Calendar ID:', calendarId);
+    console.log('timeMin:', timeMin);
+    console.log('timeMax:', timeMax);
+    console.log('Requested date:', date);
+    console.log('Requested time range:', startTime, 'to', endTime);
+    
     const response = await calendar.events.list({
       calendarId: calendarId,
       timeMin: timeMin,
       timeMax: timeMax,
       singleEvents: true,
     });
+    
+    console.log('API Response - Total events found:', response.data.items?.length || 0);
+    if (response.data.items && response.data.items.length > 0) {
+      response.data.items.forEach((event, index) => {
+        console.log(`Event ${index + 1}:`, {
+          summary: event.summary,
+          start: event.start,
+          end: event.end
+        });
+      });
+    }
 
     const events = response.data.items || [];
     console.log(`Found ${events.length} events in the calendar during this period`);
