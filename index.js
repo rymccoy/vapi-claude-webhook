@@ -255,6 +255,44 @@ app.post('/webhook/status', (req, res) => {
   res.json({ received: true });
 });
 
+// Test endpoint to verify Google Calendar access
+app.get('/test-calendar', async (req, res) => {
+  try {
+    const calendarList = await calendar.calendarList.list();
+    
+    const today = new Date();
+    const startOfDay = new Date(today.setHours(0, 0, 0, 0)).toISOString();
+    const endOfDay = new Date(today.setHours(23, 59, 59, 999)).toISOString();
+    
+    const events = await calendar.events.list({
+      calendarId: 'primary',
+      timeMin: startOfDay,
+      timeMax: endOfDay,
+      singleEvents: true,
+      orderBy: 'startTime'
+    });
+    
+    res.json({
+      success: true,
+      message: 'Google Calendar API is working!',
+      calendarsFound: calendarList.data.items.length,
+      eventsToday: events.data.items.length,
+      events: events.data.items.map(e => ({
+        summary: e.summary,
+        start: e.start.dateTime || e.start.date,
+        end: e.end.dateTime || e.end.date
+      }))
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: error.code
+    });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
