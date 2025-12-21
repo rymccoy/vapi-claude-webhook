@@ -61,11 +61,12 @@ async function checkAvailability(date, startTime, endTime) {
     const formattedStart = normalizeTime(startTime);
     const formattedEnd = normalizeTime(endTime);
     
-    const timeMin = new Date(`${date}T${formattedStart}:00`).toISOString();
-    const timeMax = new Date(`${date}T${formattedEnd}:00`).toISOString();
+    // Convert Eastern Time to UTC by adding -05:00 timezone offset
+    const timeMin = new Date(`${date}T${formattedStart}:00-05:00`).toISOString();
+    const timeMax = new Date(`${date}T${formattedEnd}:00-05:00`).toISOString();
 
-    console.log(`Formatted times: ${formattedStart} to ${formattedEnd}`);
-    console.log(`ISO format: ${timeMin} to ${timeMax}`);
+    console.log(`Formatted times (Eastern): ${formattedStart} to ${formattedEnd}`);
+    console.log(`ISO format (UTC): ${timeMin} to ${timeMax}`);
 
     const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary';
     
@@ -152,11 +153,11 @@ async function bookAppointment(summary, date, startTime, endTime, description = 
       summary: summary,
       description: description,
       start: {
-        dateTime: new Date(`${date}T${formattedStart}:00`).toISOString(),
+        dateTime: new Date(`${date}T${formattedStart}:00-05:00`).toISOString(),
         timeZone: 'America/New_York',
       },
       end: {
-        dateTime: new Date(`${date}T${formattedEnd}:00`).toISOString(),
+        dateTime: new Date(`${date}T${formattedEnd}:00-05:00`).toISOString(),
         timeZone: 'America/New_York',
       },
     };
