@@ -141,10 +141,10 @@ async function checkAvailability(date, startTime, endTime) {
 }
 
 // Helper function to book appointment
-async function bookAppointment(summary, date, startTime, endTime, description = '') {
+async function bookAppointment(summary, date, startTime, endTime, description = '', email = '') {
   try {
     console.log('=== BOOK APPOINTMENT ===');
-    console.log(`Raw inputs - summary: ${summary}, date: ${date}, startTime: ${startTime}, endTime: ${endTime}`);
+    console.log(`Raw inputs - summary: ${summary}, date: ${date}, startTime: ${startTime}, endTime: ${endTime}, email: ${email}`);
     
     const formattedStart = normalizeTime(startTime);
     const formattedEnd = normalizeTime(endTime);
@@ -161,6 +161,12 @@ async function bookAppointment(summary, date, startTime, endTime, description = 
         timeZone: 'America/New_York',
       },
     };
+    
+    // Add attendees if email provided
+    if (email) {
+      event.attendees = [{ email: email }];
+      event.sendUpdates = 'all'; // Send email invites
+    }
 
     console.log('Creating event:', JSON.stringify(event, null, 2));
     
@@ -258,8 +264,8 @@ app.post('/webhook', async (req, res) => {
         result = availabilityResult.message;
         
       } else if (name === 'book_appointment') {
-        const { summary, date, start_time, end_time, description } = parsedArgs;
-        const bookingResult = await bookAppointment(summary, date, start_time, end_time, description);
+        const { summary, date, start_time, end_time, description, email } = parsedArgs;
+        const bookingResult = await bookAppointment(summary, date, start_time, end_time, description, email);
         result = bookingResult.message;
         
       } else {
