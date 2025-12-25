@@ -163,10 +163,13 @@ async function bookAppointment(summary, date, startTime, endTime, description = 
     };
     
     // Add attendees if email provided
-    if (email) {
-      event.attendees = [{ email: email }];
-      event.sendUpdates = 'all'; // Send email invites
-    }
+if (email) {
+  event.attendees = [
+    { email: email }, // The caller
+    { email: "rcmccoy10@gmail.com" } // YOU
+  ];
+  event.sendUpdates = 'all'; // Send email invites
+}
 
     console.log('Creating event:', JSON.stringify(event, null, 2));
     
