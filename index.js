@@ -1,5 +1,6 @@
 import express from 'express';
 import { google } from 'googleapis';
+import nodemailer from 'nodemailer';
 import 'dotenv/config';
 
 const app = express();
@@ -14,6 +15,15 @@ const auth = new google.auth.GoogleAuth({
 });
 
 const calendar = google.calendar({ version: 'v3', auth });
+
+// Email Setup with Gmail SMTP
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_APP_PASSWORD,
+  },
+});
 
 // Helper function to normalize time format to HH:MM 24-hour
 function normalizeTime(time) {
@@ -47,6 +57,39 @@ function normalizeTime(time) {
   }
   
   throw new Error(`Invalid time format: ${time}. Expected HH:MM or H:MM AM/PM`);
+}
+
+// Helper function to send confirmation email
+async function sendConfirmationEmail(toEmail, name, date, startTime, endTime, summary) {
+  try {
+    const mailOptions = {
+      from: `"Ryan McCoy" <${process.env.GMAIL_USER}>`,
+      to: toEmail,
+      subject: `Appointment Confirmed - ${date} at ${startTime}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #333;">Appointment Confirmed</h2>
+          <p>Hi ${name},</p>
+          <p>Your appointment with Ryan McCoy has been confirmed:</p>
+          <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 5px 0;"><strong>Date:</strong> ${date}</p>
+            <p style="margin: 5px 0;"><strong>Time:</strong> ${startTime} - ${endTime} Eastern Time</p>
+            <p style="margin: 5px 0;"><strong>Service:</strong> ${summary}</p>
+          </div>
+          <p>If you need to cancel or reschedule, please call <strong>(330) 913-0811</strong>.</p>
+          <p>Looking forward to seeing you!</p>
+          <p style="margin-top: 30px;">Best regards,<br>Ryan McCoy</p>
+        </div>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`Confirmation email sent to ${toEmail}`);
+    return true;
+  } catch (error) {
+    console.error('Error sending email:', error);
+    return false;
+  }
 }
 
 // Helper function to check availability
@@ -146,9 +189,14 @@ async function bookAppointment(summary, date, startTime, endTime, description = 
     const formattedStart = normalizeTime(startTime);
     const formattedEnd = normalizeTime(endTime);
     
+    // Include contact info in description
+    const fullDescription = email 
+      ? `${description}\n\nContact Email: ${email}`
+      : description;
+    
     const event = {
       summary: summary,
-      description: description,
+      description: fullDescription,
       start: {
         dateTime: new Date(`${date}T${formattedStart}:00-05:00`).toISOString(),
         timeZone: 'America/New_York',
@@ -158,15 +206,6 @@ async function bookAppointment(summary, date, startTime, endTime, description = 
         timeZone: 'America/New_York',
       },
     };
-    
-    // Add attendees if email provided
-    if (email) {
-      event.attendees = [
-        { email: email }, // The caller
-        { email: "rcmccoy10@gmail.com" } // YOU
-      ];
-      event.sendUpdates = 'all'; // Send email invites
-    }
 
     console.log('Creating event:', JSON.stringify(event, null, 2));
     
@@ -179,9 +218,25 @@ async function bookAppointment(summary, date, startTime, endTime, description = 
 
     console.log('Event created successfully:', response.data.id);
 
+    // Send confirmation email if email provided
+    if (email) {
+      const emailSent = await sendConfirmationEmail(
+        email,
+        summary.split(' - ')[0] || 'there', // Extract name from summary
+        date,
+        startTime,
+        endTime,
+        summary
+      );
+      
+      if (emailSent) {
+        console.log('Confirmation email sent successfully');
+      }
+    }
+
     return {
       success: true,
-      message: `Appointment booked successfully for ${date} from ${startTime} to ${endTime}.`,
+      message: `Appointment booked successfully for ${date} from ${startTime} to ${endTime}. A confirmation email has been sent.`,
       eventId: response.data.id,
       link: response.data.htmlLink
     };
@@ -279,5 +334,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`📅 Calendar integration ready`);
+  console.log(`📧 Email notifications enabled`);
   console.log(`🔗 Webhook URL: https://vapi-claude-webhook.onrender.com/webhook`);
 });
