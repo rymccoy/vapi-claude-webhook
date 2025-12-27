@@ -5,18 +5,15 @@ import 'dotenv/config';
 const app = express();
 app.use(express.json());
 
-// Google Calendar Setup
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
-);
+// Google Calendar Setup with Service Account
+const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 
-oauth2Client.setCredentials({
-  refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+const auth = new google.auth.GoogleAuth({
+  credentials: serviceAccount,
+  scopes: ['https://www.googleapis.com/auth/calendar'],
 });
 
-const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+const calendar = google.calendar({ version: 'v3', auth });
 
 // Helper function to normalize time format to HH:MM 24-hour
 function normalizeTime(time) {
@@ -163,13 +160,13 @@ async function bookAppointment(summary, date, startTime, endTime, description = 
     };
     
     // Add attendees if email provided
-if (email) {
-  event.attendees = [
-    { email: email }, // The caller
-    { email: "rcmccoy10@gmail.com" } // YOU
-  ];
-  event.sendUpdates = 'all'; // Send email invites
-}
+    if (email) {
+      event.attendees = [
+        { email: email }, // The caller
+        { email: "rcmccoy10@gmail.com" } // YOU
+      ];
+      event.sendUpdates = 'all'; // Send email invites
+    }
 
     console.log('Creating event:', JSON.stringify(event, null, 2));
     
@@ -200,32 +197,6 @@ if (email) {
 // Health check endpoint
 app.get('/', (req, res) => {
   res.json({ status: 'Voice AI Secretary with Calendar is running!' });
-});
-
-// OAuth callback endpoint (for initial Google auth setup)
-app.get('/oauth/callback', async (req, res) => {
-  const code = req.query.code;
-  try {
-    const { tokens } = await oauth2Client.getToken(code);
-    console.log('Refresh Token:', tokens.refresh_token);
-    res.send(`
-      <h1>Success!</h1>
-      <p>Copy this refresh token to your Render environment variables:</p>
-      <code>${tokens.refresh_token}</code>
-      <p>Variable name: GOOGLE_REFRESH_TOKEN</p>
-    `);
-  } catch (error) {
-    res.status(500).send('Error getting token: ' + error.message);
-  }
-});
-
-// Start OAuth flow (visit once to get refresh token)
-app.get('/auth', (req, res) => {
-  const authUrl = oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: ['https://www.googleapis.com/auth/calendar'],
-  });
-  res.redirect(authUrl);
 });
 
 // Main webhook endpoint for Vapi Custom Tools
