@@ -206,6 +206,43 @@ async function bookAppointment(summary, date, startTime, endTime, description = 
     
     const formattedStart = normalizeTime(startTime);
     const formattedEnd = normalizeTime(endTime);
+
+    // Helper function to send confirmation email
+async function sendConfirmationEmail(toEmail, name, date, startTime, endTime, summary) {
+  try {
+    const { data, error } = await resend.emails.send({
+      from: 'Ryan McCoy <onboarding@resend.dev>',
+      to: [toEmail, 'rcmccoy10@gmail.com'], // Send to BOTH client and you
+      subject: `Appointment Confirmed - ${date} at ${startTime}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #333;">Appointment Confirmed</h2>
+          <p>Hi ${name},</p>
+          <p>Your appointment with Ryan McCoy has been confirmed:</p>
+          <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 5px 0;"><strong>Date:</strong> ${date}</p>
+            <p style="margin: 5px 0;"><strong>Time:</strong> ${startTime} - ${endTime} Eastern Time</p>
+            <p style="margin: 5px 0;"><strong>Service:</strong> ${summary}</p>
+          </div>
+          <p>If you need to cancel or reschedule, please call <strong>(330) 913-0811</strong>.</p>
+          <p>Looking forward to seeing you!</p>
+          <p style="margin-top: 30px;">Best regards,<br>Ryan McCoy</p>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error('Error sending email:', error);
+      return false;
+    }
+
+    console.log(`Confirmation email sent to ${toEmail} and rcmccoy10@gmail.com, ID: ${data.id}`);
+    return true;
+  } catch (error) {
+    console.error('Error sending email:', error);
+    return false;
+  }
+}
     
     // Include contact info in description
     const fullDescription = email 
