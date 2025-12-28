@@ -92,6 +92,20 @@ async function sendConfirmationEmail(toEmail, name, date, startTime, endTime, su
   }
 }
 
+app.get('/test-email', async (req, res) => {
+  try {
+    await transporter.sendMail({
+      from: `"Ryan McCoy" <${process.env.GMAIL_USER}>`,
+      to: 'rcmccoy10@gmail.com',
+      subject: 'Test Email from VAPI Backend',
+      text: 'If you receive this, email is working!',
+    });
+    res.json({ success: true, message: 'Test email sent!' });
+  } catch (error) {
+    res.json({ success: false, error: error.message });
+  }
+});
+
 // Helper function to check availability
 async function checkAvailability(date, startTime, endTime) {
   try {
