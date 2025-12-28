@@ -1,6 +1,6 @@
 import express from 'express';
 import { google } from 'googleapis';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import 'dotenv/config';
 
 const app = express();
@@ -16,14 +16,8 @@ const auth = new google.auth.GoogleAuth({
 
 const calendar = google.calendar({ version: 'v3', auth });
 
-// Email Setup with Gmail SMTP
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
-  },
-});
+// Email Setup with Resend
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Helper function to normalize time format to HH:MM 24-hour
 function normalizeTime(time) {
@@ -62,8 +56,8 @@ function normalizeTime(time) {
 // Helper function to send confirmation email
 async function sendConfirmationEmail(toEmail, name, date, startTime, endTime, summary) {
   try {
-    const mailOptions = {
-      from: `"Ryan McCoy" <${process.env.GMAIL_USER}>`,
+    const { data, error } = await resend.emails.send({
+      from: 'Ryan McCoy <onboarding@resend.dev>', // Update this after verifying your domain
       to: toEmail,
       subject: `Appointment Confirmed - ${date} at ${startTime}`,
       html: `
@@ -81,10 +75,14 @@ async function sendConfirmationEmail(toEmail, name, date, startTime, endTime, su
           <p style="margin-top: 30px;">Best regards,<br>Ryan McCoy</p>
         </div>
       `,
-    };
+    });
 
-    await transporter.sendMail(mailOptions);
-    console.log(`Confirmation email sent to ${toEmail}`);
+    if (error) {
+      console.error('Error sending email:', error);
+      return false;
+    }
+
+    console.log(`Confirmation email sent to ${toEmail}, ID: ${data.id}`);
     return true;
   } catch (error) {
     console.error('Error sending email:', error);
@@ -92,15 +90,21 @@ async function sendConfirmationEmail(toEmail, name, date, startTime, endTime, su
   }
 }
 
+// Test email endpoint
 app.get('/test-email', async (req, res) => {
   try {
-    await transporter.sendMail({
-      from: `"Ryan McCoy" <${process.env.GMAIL_USER}>`,
+    const { data, error } = await resend.emails.send({
+      from: 'Ryan McCoy <onboarding@resend.dev>',
       to: 'rcmccoy10@gmail.com',
       subject: 'Test Email from VAPI Backend',
-      text: 'If you receive this, email is working!',
+      html: '<p>If you receive this, Resend email is working!</p>',
     });
-    res.json({ success: true, message: 'Test email sent!' });
+
+    if (error) {
+      return res.json({ success: false, error: error });
+    }
+
+    res.json({ success: true, message: 'Test email sent!', id: data.id });
   } catch (error) {
     res.json({ success: false, error: error.message });
   }
@@ -348,6 +352,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`📅 Calendar integration ready`);
-  console.log(`📧 Email notifications enabled`);
+  console.log(`📧 Email notifications enabled (Resend)`);
   console.log(`🔗 Webhook URL: https://vapi-claude-webhook.onrender.com/webhook`);
 });
